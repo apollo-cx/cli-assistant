@@ -1,6 +1,23 @@
 import os
 from functions.config import MAX_CHARS
 
+from google import genai
+from google.genai import types  # type: ignore
+
+schema_get_file_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description="Reads the contents of a specified file and truncates it if it is over MAX_CHARS (variable) bytes large, limited to working directory",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to read, relative to the working directory.",
+            ),
+        },
+    ),
+)
+
 
 def get_file_content(working_directory, file_path):
     try:

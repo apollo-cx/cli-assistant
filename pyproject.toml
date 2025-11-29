@@ -7,9 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "argparse>=1.4.0",
     "google-genai==1.12.1",
+    "openai>=2.8.1",
     "python-dotenv==1.1.0",
 ]
 
 [project.scripts]
 ai = "assistant.main:main"
-clia = "assistant.main:main"
+

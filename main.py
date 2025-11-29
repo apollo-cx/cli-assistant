@@ -11,7 +11,7 @@ from functions.write_file_content import schema_write_file
 from functions.run_python import schema_run_python
 
 from assistant.argv_parser import parser
-from call_function import call_function
+from assistant.call_function import call_function
 from assistant.config import SYSTEM_PRPOMPT as system_prompt
 
 load_dotenv()
@@ -32,7 +32,7 @@ available_functions = types.Tool(
 
 def generate_response(client, messages, is_verbose=False):
     response = client.models.generate_content(
-        model="gemini-2.0-flash-001",
+        model="gemini-2.0-flash-live",
         contents=messages,
         config=types.GenerateContentConfig(
             tools=[available_functions], system_instruction=system_prompt

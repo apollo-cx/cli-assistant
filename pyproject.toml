@@ -11,4 +11,5 @@ dependencies = [
 ]
 
 [project.scripts]
-cliassist = "assistant.main:main"
+ai = "assistant.main:main"
+clia = "assistant.main:main"

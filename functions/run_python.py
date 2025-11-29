@@ -5,8 +5,8 @@ import subprocess
 from google import genai
 from google.genai import types  # type: ignore
 
-schema_run_python_file = types.FunctionDeclaration(
-    name="run_python_file",
+schema_run_python = types.FunctionDeclaration(
+    name="run_python",
     description="Executes a specified Python file with optional arguments, limited to working directory",
     parameters=types.Schema(
         type=types.Type.OBJECT,
@@ -20,7 +20,7 @@ schema_run_python_file = types.FunctionDeclaration(
 )
 
 
-def run_python_file(working_directory, file_path, args=[]):
+def run_python(working_directory, file_path, args=[]):
     try:
         abs_working_directory = os.path.abspath(working_directory)
         abs_target_file = os.path.abspath(os.path.join(working_directory, file_path))

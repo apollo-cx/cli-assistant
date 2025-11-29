@@ -1,5 +1,5 @@
 import os
-from functions.config import MAX_CHARS
+from config import MAX_CHARS
 
 from google import genai
 from google.genai import types  # type: ignore

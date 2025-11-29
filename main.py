@@ -1,5 +1,6 @@
 import os
 import sys
+
 from dotenv import load_dotenv  # type: ignore
 from google import genai
 from google.genai import types  # type: ignore
@@ -9,27 +10,20 @@ from functions.get_file_content import schema_get_file_content
 from functions.write_file_content import schema_write_file
 from functions.run_python import schema_run_python
 
+from argv_parser import parser
 from call_function import call_function
-
+from config import (
+    SYSTEM_PRPOMPT as system_prompt,
+    MAX_CHARS,
+    WORKING_DIR,
+    ITERATON_LIMIT,
+)
 
 load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
 
-system_prompt = """
-You are a helpful AI coding agent.
+_api_key = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=_api_key)
 
-When a user asks a question or makes a request, make a function call plan. You can perform the following operations:
-
-- List files and directories
-- Read file contents
-- Execute Python files with optional arguments
-- Write or overwrite files
-
-All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
-
-IMPORTANT: Whenever you produce a function call plan, also include a single short text summary (1-2 sentences) describing the chosen action/intent. The client will use the function_calls to decide what to run, but always return a short text explanation as well.
-"""
 
 available_functions = types.Tool(
     function_declarations=[
@@ -41,26 +35,18 @@ available_functions = types.Tool(
 )
 
 
-def _parse_args(argv):
-    user_prompt = ""
-    flags = []
-
-    for arg in argv:
-        if arg.startswith("-") or arg.startswith("--"):
-            flags.append(arg)
-        else:
-            user_prompt += arg + " "
-    return user_prompt, flags
-
-
-def generate_response(client, messages, is_verbose=False):
+def generate_response(client, messages, config_overrides, is_verbose=False):
     response = client.models.generate_content(
-        model="gemini-2.0-flash-001",
+        model=config_overrides["model"],
         contents=messages,
         config=types.GenerateContentConfig(
             tools=[available_functions], system_instruction=system_prompt
         ),
     )
+
+    if not response or not response.candidates:
+        print("Warning: Received empty response from API")
+        return None
 
     for candidate in response.candidates:
         messages.append(candidate.content)
@@ -71,7 +57,9 @@ def generate_response(client, messages, is_verbose=False):
         return response.text
     else:
         for function_call in response.function_calls:
-            function_call_result = call_function(function_call, verbose=is_verbose)
+            function_call_result = call_function(
+                function_call, config_overrides, verbose=is_verbose
+            )
 
             if (
                 not function_call_result.parts
@@ -95,21 +83,33 @@ def generate_response(client, messages, is_verbose=False):
 
 def main():
 
-    user_prompt, flags = _parse_args(sys.argv[1:])
+    args = parser.parse_args()
+    user_prompt = " ".join(args.prompt) if args.prompt else ""
+    is_verbose = args.verbose
+    is_silent = args.silent
+
+    # Build config overrides dict with defaults from config.py
+    config_overrides = {
+        "max_chars": args.max_chars if args.max_chars else MAX_CHARS,
+        "working_dir": args.working_dir if args.working_dir else WORKING_DIR,
+        "iteration_limit": (
+            args.iteration_limit if args.iteration_limit else ITERATON_LIMIT
+        ),
+        "min_iterations": args.min_iterations if args.min_iterations else 0,
+        "model": args.model,
+    }
 
     if not user_prompt:
         print("Please provide input text as a command-line argument.")
         sys.exit(1)
 
-    is_verbose = "--verbose" in flags or "-v" in flags
-
     messages = [
         types.Content(role="user", parts=[types.Part(text=user_prompt)]),
     ]
 
-    for _ in range(20):
-        final_text = generate_response(client, messages, is_verbose)
-        if final_text:
+    for iteration in range(config_overrides["iteration_limit"]):
+        final_text = generate_response(client, messages, config_overrides, is_verbose)
+        if final_text and iteration >= config_overrides["min_iterations"]:
             print("Final response:")
             print(final_text)
             break

@@ -1,26 +1,29 @@
-import os
+"""File content reading function with security and size constraints.
 
-from google import genai
-from google.genai import types  # type: ignore
+Reads file contents from within the working directory, with automatic
+truncation for large files to prevent memory issues.
+"""
+
+import os
 
 from assistant.config import MAX_CHARS
 
-schema_get_file_content = types.FunctionDeclaration(
-    name="get_file_content",
-    description="Reads the contents of a specified file and truncates it if it is over MAX_CHARS (variable) bytes large, limited to working directory",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path to the file to read, relative to the working directory.",
-            ),
-        },
-    ),
-)
-
 
 def get_file_content(working_directory, file_path):
+    """Read the contents of a file within the working directory.
+
+    Args:
+        working_directory: Base directory that all operations are restricted to.
+        file_path: Path to the file relative to working_directory.
+
+    Returns:
+        The file contents as a string, or an error message if:
+        - File is outside the working directory
+        - File doesn't exist or is not a regular file
+        - Any other exception occurs
+
+    Files larger than MAX_CHARS are truncated with a notice appended.
+    """
     try:
         abs_working_directory = os.path.abspath(working_directory)
         abs_target_file = os.path.abspath(os.path.join(working_directory, file_path))

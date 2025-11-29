@@ -1,26 +1,35 @@
+"""Python script execution function with timeout and output capture.
+
+Executes Python files within the working directory with a 30-second
+timeout, capturing both stdout and stderr.
+"""
+
 import os
-
 import subprocess
-
-from google import genai
-from google.genai import types  # type: ignore
-
-schema_run_python = types.FunctionDeclaration(
-    name="run_python",
-    description="Executes a specified Python file with optional arguments, limited to working directory",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path to the Python file to execute, relative to the working directory.",
-            ),
-        },
-    ),
-)
 
 
 def run_python(working_directory, file_path, args=[]):
+    """Execute a Python file within the working directory.
+
+    Args:
+        working_directory: Base directory that all operations are restricted to.
+        file_path: Path to the Python file relative to working_directory.
+        args: List of command-line arguments to pass to the script.
+
+    Returns:
+        String containing:
+        - STDOUT output
+        - STDERR output
+        - Exit code (if non-zero)
+
+        Or an error message if:
+        - File is outside the working directory
+        - File doesn't exist or is not a .py file
+        - Execution times out (30 seconds)
+        - Any other exception occurs
+
+    The script runs with the working directory as its current directory.
+    """
     try:
         abs_working_directory = os.path.abspath(working_directory)
         abs_target_file = os.path.abspath(os.path.join(working_directory, file_path))

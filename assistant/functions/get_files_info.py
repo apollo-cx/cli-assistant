@@ -1,24 +1,31 @@
-import os
-from google import genai
-from google.genai import types  # type: ignore
+"""Directory listing function with file metadata.
 
-schema_get_files_info = types.FunctionDeclaration(
-    name="get_files_info",
-    description="Lists files in the specified directory along with their sizes, constrained to the working directory.",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "directory": types.Schema(
-                type=types.Type.STRING,
-                description="The directory to list files from, relative to the working directory. If not provided, lists files in the working directory itself.",
-            ),
-        },
-    ),
-)
+Provides information about files and subdirectories within the
+working directory, including sizes and types.
+"""
+
+import os
 
 
 def get_files_info(working_directory, directory="."):
-    """Returns a string with information about files in the specified directory."""
+    """List files in a directory with their sizes and types.
+
+    Args:
+        working_directory: Base directory that all operations are restricted to.
+        directory: Subdirectory to list, relative to working_directory.
+                  Defaults to "." (working directory itself).
+
+    Returns:
+        Formatted string with one line per item showing:
+        - Item name
+        - Size in bytes
+        - Whether it's a directory
+
+        Or an error message if:
+        - Directory is outside the working directory
+        - Directory doesn't exist
+        - Any other exception occurs
+    """
 
     try:
         abs_working_directory = os.path.abspath(working_directory)

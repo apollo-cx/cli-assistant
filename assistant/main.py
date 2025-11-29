@@ -1,116 +1,150 @@
+"""Main module for the CLI AI coding assistant.
+
+This module provides the core functionality for interacting with a local LLM
+(Qwen3) via OpenAI-compatible API. It supports tool calling for file operations,
+conversation history management, and iterative AI-driven task execution.
+
+The assistant can:
+- List files and directories
+- Read file contents
+- Write/overwrite files
+- Execute Python scripts
+
+All operations are sandboxed to a specified working directory for security.
+"""
+
 import os
 import sys
 import json
 
 from dotenv import load_dotenv  # type: ignore
-from google import genai
 from openai import OpenAI
-from google.genai import types  # type: ignore
 
-from assistant.functions.get_files_info import schema_get_files_info
-from assistant.functions.get_file_content import schema_get_file_content
-from assistant.functions.write_file_content import schema_write_file
-from assistant.functions.run_python import schema_run_python
+from assistant.functions.function_schemas import (
+    schema_get_files_info,
+    schema_get_file_content,
+    schema_write_file,
+    schema_run_python,
+)
 
 from assistant.argv_parser import parser
 from assistant.call_function import call_function
-from assistant.config import SYSTEM_PRPOMPT as system_prompt
+from assistant.config import SYSTEM_PRPOMPT
 
 load_dotenv()
 
-# --- Neuro client setup ---
-# api_key = os.environ.get("NEURO_API_KEY")
-# base_url = os.environ.get("NEURO_BASE_URL")
+# --- Neuro client setup (Qwen3 LLM) ---
+api_key = os.environ.get("NEURO_API_KEY")
+base_url = os.environ.get("NEURO_BASE_URL")
 
-# --- Gemini client setup ---
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+client = OpenAI(api_key=api_key, base_url=base_url)
 
-
-# client = OpenAI(api_key=api_key, base_url=base_url)
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-
-available_functions = types.Tool(
-    function_declarations=[
-        schema_get_files_info,
-        schema_get_file_content,
-        schema_write_file,
-        schema_run_python,
-    ]
-)
+available_functions = [
+    schema_get_files_info,
+    schema_get_file_content,
+    schema_write_file,
+    schema_run_python,
+]
 
 
 def generate_response(client, messages, is_verbose=False):
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-001",  # qwen/qwen3-8b
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions], system_instruction=system_prompt
-        ),
+    """Generate a response from the AI and execute any tool calls.
+
+    Args:
+        client: OpenAI client instance configured for the local LLM.
+        messages: List of message dictionaries in OpenAI format.
+        is_verbose: If True, print detailed function call information.
+
+    Returns:
+        The text content of the final response if no tool calls were made,
+        or None if tool calls were executed (requiring another iteration).
+
+    This function:
+    1. Sends the current message history to the LLM
+    2. Processes the response, handling both text and tool calls
+    3. Executes any requested tool calls and appends results to messages
+    4. Returns control for the next iteration or final output
+    """
+    response = client.chat.completions.create(
+        model="qwen/qwen3-8b",
+        messages=messages,
+        tools=available_functions,
     )
 
-    for candidate in response.candidates:
-        messages.append(candidate.content)
+    response_message = response.choices[0].message
 
-    tool_responses = []
+    msg_dict = {"role": "assistant"}
 
-    if not response.function_calls and response.text:
-        return response.text
+    if response_message.content is not None:
+        msg_dict["content"] = response_message.content
 
-    else:
-        for function_call in response.function_calls:
-            function_call_result = call_function(function_call, verbose=is_verbose)
+    if response_message.tool_calls:
+        msg_dict["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in response_message.tool_calls
+        ]
 
-            if (
-                not function_call_result.parts
-                or not function_call_result.parts[0].function_response
-            ):
-                raise RuntimeError("Function call did not return a function_response")
+    messages.append(msg_dict)
 
-            tool_responses.append(function_call_result.parts[0])
-            if is_verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+    # If there are no tool calls, return the text response
+    if not response_message.tool_calls:
+        return response_message.content
 
+    # Process tool calls
+    for tool_call in response_message.tool_calls:
+        function_result = call_function(tool_call, verbose=is_verbose)
+
+        if is_verbose:
+            print(f"-> {function_result}")
+
+        # Add tool response to messages
         messages.append(
-            types.Content(
-                role="user",
-                parts=tool_responses,
-            )
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": json.dumps(function_result),
+            }
         )
 
     return None
 
 
 def save_conversation(messages, filename="assistant/data/conversation_history.json"):
-    """Save messages as JSON for later retrieval"""
+    """Save conversation history to a JSON file.
+
+    Args:
+        messages: List of message dictionaries in OpenAI format.
+        filename: Path to the JSON file where history will be saved.
+
+    The conversation history allows the assistant to maintain context
+    across multiple invocations, enabling multi-turn conversations.
+    """
     if not os.path.exists("assistant/data"):
         os.makedirs("assistant/data")
 
-    # Convert messages to serializable format
-    history = []
-    for message in messages:
-        msg_data = {"role": message.role}
-        parts = []
-        for part in message.parts:
-            if part.text:
-                parts.append({"type": "text", "text": part.text})
-            elif part.function_response:
-                parts.append(
-                    {
-                        "type": "function_response",
-                        "name": part.function_response.name,
-                        "response": dict(part.function_response.response),
-                    }
-                )
-        msg_data["parts"] = parts
-        history.append(msg_data)
-
-    # Save history
+    # All messages are already in dict format, just save them
     with open(filename, "w") as f:
-        json.dump(history, f, indent=2)
+        json.dump(messages, f, indent=2)
 
 
 def get_saved_conversation(filename="assistant/data/conversation_history.json"):
-    """Load previous messages as Content objects"""
+    """Load conversation history from a JSON file.
+
+    Args:
+        filename: Path to the JSON file containing conversation history.
+
+    Returns:
+        List of message dictionaries in OpenAI format, or empty list
+        if no history exists or the file cannot be parsed.
+    """
     if not os.path.exists(filename):
         return []
 
@@ -120,25 +154,18 @@ def get_saved_conversation(filename="assistant/data/conversation_history.json"):
         except json.JSONDecodeError:
             return []
 
-    # Convert back to Content objects
-    messages = []
-    for msg_data in history:
-        parts = []
-        for part_data in msg_data.get("parts", []):
-            if part_data["type"] == "text":
-                parts.append(types.Part(text=part_data["text"]))
-            elif part_data["type"] == "function_response":
-                parts.append(
-                    types.Part.from_function_response(
-                        name=part_data["name"], response=part_data["response"]
-                    )
-                )
-        messages.append(types.Content(role=msg_data["role"], parts=parts))
-
-    return messages
+    # Messages are already in the correct format for OpenAI
+    return history
 
 
 def clear_conversation_history(filename="assistant/data/conversation_history.json"):
+    """Delete the conversation history file.
+
+    Args:
+        filename: Path to the JSON file containing conversation history.
+
+    This is useful for starting fresh conversations or clearing sensitive data.
+    """
     if os.path.exists(filename):
         os.remove(filename)
         print("Conversation history cleared.")
@@ -147,6 +174,19 @@ def clear_conversation_history(filename="assistant/data/conversation_history.jso
 
 
 def main():
+    """Main entry point for the CLI assistant.
+
+    Handles:
+    - Command-line argument parsing
+    - Conversation history management
+    - Message loop with the LLM (up to 20 iterations)
+    - Tool execution via function calling
+    - Final response output
+
+    The assistant runs in an iterative loop, allowing the LLM to make
+    multiple tool calls and process their results before generating
+    a final response.
+    """
     args = parser.parse_args()
     user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
@@ -162,9 +202,12 @@ def main():
 
     old_messages = get_saved_conversation()
 
-    messages = old_messages + [
-        types.Content(role="user", parts=[types.Part(text=user_prompt)]),
-    ]
+    if not old_messages:
+        messages = [{"role": "system", "content": SYSTEM_PRPOMPT}]
+    else:
+        messages = old_messages
+
+    messages.append({"role": "user", "content": user_prompt})
 
     for _ in range(20):
         final_text = generate_response(client, messages, is_verbose)

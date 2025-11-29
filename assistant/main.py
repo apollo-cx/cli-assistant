@@ -5,13 +5,13 @@ from dotenv import load_dotenv  # type: ignore
 from google import genai
 from google.genai import types  # type: ignore
 
-from functions.get_files_info import schema_get_files_info
-from functions.get_file_content import schema_get_file_content
-from functions.write_file_content import schema_write_file
-from functions.run_python import schema_run_python
+from assistant.functions.get_files_info import schema_get_files_info
+from assistant.functions.get_file_content import schema_get_file_content
+from assistant.functions.write_file_content import schema_write_file
+from assistant.functions.run_python import schema_run_python
 
 from assistant.argv_parser import parser
-from call_function import call_function
+from assistant.call_function import call_function
 from assistant.config import SYSTEM_PRPOMPT as system_prompt
 
 load_dotenv()
@@ -73,7 +73,7 @@ def generate_response(client, messages, is_verbose=False):
 def main():
 
     args = parser.parse_args()
-    user_prompt = args.prompt
+    user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
     is_silent = args.silent
 

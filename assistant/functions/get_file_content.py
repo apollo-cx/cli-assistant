@@ -3,7 +3,7 @@ import os
 from google import genai
 from google.genai import types  # type: ignore
 
-from config import MAX_CHARS
+from assistant.config import MAX_CHARS
 
 schema_get_file_content = types.FunctionDeclaration(
     name="get_file_content",

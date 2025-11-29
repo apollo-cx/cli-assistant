@@ -3,12 +3,15 @@ import os
 from google import genai
 from google.genai import types  # type: ignore
 
-from functions.get_file_content import get_file_content, schema_get_file_content
-from functions.get_files_info import get_files_info, schema_get_files_info
-from functions.run_python import run_python, schema_run_python
-from functions.write_file_content import write_file, schema_write_file
+from assistant.functions.get_file_content import (
+    get_file_content,
+    schema_get_file_content,
+)
+from assistant.functions.get_files_info import get_files_info, schema_get_files_info
+from assistant.functions.run_python import run_python, schema_run_python
+from assistant.functions.write_file_content import write_file, schema_write_file
 
-from config import WORKING_DIR
+from assistant.config import WORKING_DIR
 
 
 available_functions = types.Tool(

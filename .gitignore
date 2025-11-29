@@ -1,4 +1,4 @@
-# Python-generated files
+# --- Python-generated files ---
 __pycache__/
 *.py[oc]
 build/
@@ -6,12 +6,13 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
+# --- Virtual environments ---
 .venv
 
-# Secrets
+# --- Secrets ---
 .env
 
-# Other
+# --- Miscellaneous ---
 calculator
 cli-assistant.code-workspace
+.python-version

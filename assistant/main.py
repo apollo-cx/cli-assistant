@@ -4,8 +4,18 @@ import json
 
 from dotenv import load_dotenv  # type: ignore
 from google import genai
-from openai import OpenAI
+
+# from openai import OpenAI
 from google.genai import types  # type: ignore
+
+from assistant.ui import (
+    print_response,
+    print_verbose_response,
+    print_error,
+    print_success,
+    print_warning,
+    print_request_info,
+)
 
 from assistant.functions.get_files_info import schema_get_files_info
 from assistant.functions.get_file_content import schema_get_file_content
@@ -25,9 +35,8 @@ load_dotenv()
 # --- Gemini client setup ---
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-
+# --- OpenAI client setup ---
 # client = OpenAI(api_key=api_key, base_url=base_url)
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 available_functions = types.Tool(
     function_declarations=[
@@ -39,7 +48,7 @@ available_functions = types.Tool(
 )
 
 
-def generate_response(client, messages, is_verbose=False):
+def generate_response(client, messages, is_verbose=False, plain=False):
     response = client.models.generate_content(
         model="gemini-2.0-flash-001",  # qwen/qwen3-8b
         contents=messages,
@@ -47,6 +56,20 @@ def generate_response(client, messages, is_verbose=False):
             tools=[available_functions], system_instruction=system_prompt
         ),
     )
+
+    # Show request info in verbose mode
+    if is_verbose:
+        # Get the user prompt from the last message
+        user_prompt = ""
+        for msg in reversed(messages):
+            if msg.role == "user":
+                for part in msg.parts:
+                    if part.text:
+                        user_prompt = part.text
+                        break
+                if user_prompt:
+                    break
+        print_request_info(user_prompt, response, plain=plain)
 
     for candidate in response.candidates:
         messages.append(candidate.content)
@@ -58,7 +81,9 @@ def generate_response(client, messages, is_verbose=False):
 
     else:
         for function_call in response.function_calls:
-            function_call_result = call_function(function_call, verbose=is_verbose)
+            function_call_result = call_function(
+                function_call, verbose=is_verbose, plain=plain
+            )
 
             if (
                 not function_call_result.parts
@@ -68,7 +93,8 @@ def generate_response(client, messages, is_verbose=False):
 
             tool_responses.append(function_call_result.parts[0])
             if is_verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+                response_data = function_call_result.parts[0].function_response.response
+                print_verbose_response(response_data, plain=plain)
 
         messages.append(
             types.Content(
@@ -138,12 +164,14 @@ def get_saved_conversation(filename="assistant/data/conversation_history.json"):
     return messages
 
 
-def clear_conversation_history(filename="assistant/data/conversation_history.json"):
+def clear_conversation_history(
+    filename="assistant/data/conversation_history.json", plain=False
+):
     if os.path.exists(filename):
         os.remove(filename)
-        print("Conversation history cleared.")
+        print_success("Conversation history cleared.", plain=plain)
     else:
-        print("No conversation history to clear.")
+        print_warning("No conversation history to clear.", plain=plain)
 
 
 def main():
@@ -151,13 +179,16 @@ def main():
     user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
     is_clear_history = args.clear
+    plain = args.plain
 
     if is_clear_history:
-        clear_conversation_history()
+        clear_conversation_history(plain=plain)
         sys.exit
 
     if not user_prompt:
-        print("Please provide input text as a command-line argument.")
+        print_error(
+            "Please provide input text as a command-line argument.", plain=plain
+        )
         sys.exit(1)
 
     old_messages = get_saved_conversation()
@@ -167,10 +198,9 @@ def main():
     ]
 
     for _ in range(20):
-        final_text = generate_response(client, messages, is_verbose)
+        final_text = generate_response(client, messages, is_verbose, plain)
         if final_text:
-            print("Final response:")
-            print(final_text)
+            print_response(final_text, plain=plain)
             break
 
     save_conversation(messages)

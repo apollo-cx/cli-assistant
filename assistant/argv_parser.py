@@ -14,3 +14,7 @@ parser.add_argument(
 )
 
 parser.add_argument("-s", "--silent", action="store_true", help="Enable silent mode")
+
+parser.add_argument(
+    "--plain", action="store_true", help="Disable rich formatting (plain text output)"
+)

@@ -9,34 +9,3 @@ parser.add_argument(
 )
 
 parser.add_argument("-s", "--silent", action="store_true", help="Enable silent mode")
-
-parser.add_argument(
-    "--max-chars",
-    type=int,
-    help="Maximum characters to read from files (overrides config)",
-)
-
-parser.add_argument(
-    "--working-dir",
-    type=str,
-    help="Working directory for file operations (overrides config)",
-)
-
-parser.add_argument(
-    "--iteration-limit",
-    type=int,
-    help="Maximum number of iterations (overrides config)",
-)
-
-parser.add_argument(
-    "--min-iterations",
-    type=int,
-    help="Minimum number of iterations before allowing early exit",
-)
-
-parser.add_argument(
-    "--model",
-    type=str,
-    default="gemini-2.0-flash-001",
-    help="Model to use for generation",
-)

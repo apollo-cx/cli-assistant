@@ -12,12 +12,7 @@ from functions.run_python import schema_run_python
 
 from argv_parser import parser
 from call_function import call_function
-from config import (
-    SYSTEM_PRPOMPT as system_prompt,
-    MAX_CHARS,
-    WORKING_DIR,
-    ITERATON_LIMIT,
-)
+from config import SYSTEM_PRPOMPT as system_prompt
 
 load_dotenv()
 
@@ -35,18 +30,14 @@ available_functions = types.Tool(
 )
 
 
-def generate_response(client, messages, config_overrides, is_verbose=False):
+def generate_response(client, messages, is_verbose=False):
     response = client.models.generate_content(
-        model=config_overrides["model"],
+        model="gemini-2.0-flash-001",
         contents=messages,
         config=types.GenerateContentConfig(
             tools=[available_functions], system_instruction=system_prompt
         ),
     )
-
-    if not response or not response.candidates:
-        print("Warning: Received empty response from API")
-        return None
 
     for candidate in response.candidates:
         messages.append(candidate.content)
@@ -57,9 +48,7 @@ def generate_response(client, messages, config_overrides, is_verbose=False):
         return response.text
     else:
         for function_call in response.function_calls:
-            function_call_result = call_function(
-                function_call, config_overrides, verbose=is_verbose
-            )
+            function_call_result = call_function(function_call, verbose=is_verbose)
 
             if (
                 not function_call_result.parts
@@ -84,20 +73,9 @@ def generate_response(client, messages, config_overrides, is_verbose=False):
 def main():
 
     args = parser.parse_args()
-    user_prompt = " ".join(args.prompt) if args.prompt else ""
+    user_prompt = args.prompt
     is_verbose = args.verbose
     is_silent = args.silent
-
-    # Build config overrides dict with defaults from config.py
-    config_overrides = {
-        "max_chars": args.max_chars if args.max_chars else MAX_CHARS,
-        "working_dir": args.working_dir if args.working_dir else WORKING_DIR,
-        "iteration_limit": (
-            args.iteration_limit if args.iteration_limit else ITERATON_LIMIT
-        ),
-        "min_iterations": args.min_iterations if args.min_iterations else 0,
-        "model": args.model,
-    }
 
     if not user_prompt:
         print("Please provide input text as a command-line argument.")
@@ -107,9 +85,9 @@ def main():
         types.Content(role="user", parts=[types.Part(text=user_prompt)]),
     ]
 
-    for iteration in range(config_overrides["iteration_limit"]):
-        final_text = generate_response(client, messages, config_overrides, is_verbose)
-        if final_text and iteration >= config_overrides["min_iterations"]:
+    for _ in range(20):
+        final_text = generate_response(client, messages, is_verbose)
+        if final_text:
             print("Final response:")
             print(final_text)
             break

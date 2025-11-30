@@ -227,7 +227,8 @@ def chat_mode(is_verbose=False):
             padding=(0, 2),
         )
 
-        from assistant.ui import _matrix_center_content, _update_matrix_display
+        from assistant.ui.config import _matrix_center_content
+        from assistant.ui.layout import _update_matrix_display
 
         _matrix_center_content.append(chat_instructions)
         _update_matrix_display()

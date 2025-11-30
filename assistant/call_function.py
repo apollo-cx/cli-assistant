@@ -7,6 +7,8 @@ implementations, automatically injecting the working directory for security.
 import os
 import json
 
+from assistant.ui import console, print_function_call, print_function_complete
+
 from assistant.functions.get_file_content import get_file_content
 from assistant.functions.get_files_info import get_files_info
 from assistant.functions.run_python import run_python
@@ -15,12 +17,13 @@ from assistant.functions.write_file_content import write_file
 from assistant.config import WORKING_DIR
 
 
-def call_function(tool_call, verbose=False):
+def call_function(tool_call, verbose=False, plain=False):
     """Execute a function based on an OpenAI tool call.
 
     Args:
         tool_call: OpenAI tool call object containing function name and arguments.
         verbose: If True, print detailed information about the function call.
+        plain: If True, use plain text output instead of rich formatting.
 
     Returns:
         Dictionary with either:
@@ -33,23 +36,44 @@ def call_function(tool_call, verbose=False):
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
 
-    if verbose:
-        print(f" - Calling function: {function_name}({args})")
+    if plain:
+        # Plain text output without spinner
+        print_function_call(function_name, args, plain=True)
+        args["working_directory"] = WORKING_DIR
+
+        function_map = {
+            "get_file_content": get_file_content,
+            "get_files_info": get_files_info,
+            "write_file": write_file,
+            "run_python": run_python,
+        }
+
+        if function_name not in function_map:
+            return {"error": f"Unknown function: {function_name}"}
+
+        function_result = function_map[function_name](**args)
+        print_function_complete(function_name, plain=True)
+
+        return {"result": function_result}
     else:
-        print(f" - Calling function: {function_name}")
+        # Rich formatted with spinner
+        spinner_text = print_function_call(function_name, args, plain=False)
+        with console.status(spinner_text, spinner="dots"):
+            args["working_directory"] = WORKING_DIR
 
-    args["working_directory"] = WORKING_DIR
+            function_map = {
+                "get_file_content": get_file_content,
+                "get_files_info": get_files_info,
+                "write_file": write_file,
+                "run_python": run_python,
+            }
 
-    function_map = {
-        "get_file_content": get_file_content,
-        "get_files_info": get_files_info,
-        "write_file": write_file,
-        "run_python": run_python,
-    }
+            if function_name not in function_map:
+                return {"error": f"Unknown function: {function_name}"}
 
-    if function_name not in function_map:
-        return {"error": f"Unknown function: {function_name}"}
+            function_result = function_map[function_name](**args)
 
-    function_result = function_map[function_name](**args)
+        # Show completion
+        print_function_complete(function_name, plain=False)
 
-    return {"result": function_result}
+        return {"result": function_result}

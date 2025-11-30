@@ -20,6 +20,13 @@ import json
 from dotenv import load_dotenv  # type: ignore
 from openai import OpenAI
 
+from assistant.ui import (
+    print_response,
+    print_error,
+    print_success,
+    print_warning,
+)
+
 from assistant.functions.function_schemas import (
     schema_get_files_info,
     schema_get_file_content,
@@ -47,13 +54,14 @@ available_functions = [
 ]
 
 
-def generate_response(client, messages, is_verbose=False):
+def generate_response(client, messages, is_verbose=False, plain=False):
     """Generate a response from the AI and execute any tool calls.
 
     Args:
         client: OpenAI client instance configured for the local LLM.
         messages: List of message dictionaries in OpenAI format.
         is_verbose: If True, print detailed function call information.
+        plain: If True, use plain text output instead of rich formatting.
 
     Returns:
         The text content of the final response if no tool calls were made,
@@ -99,7 +107,7 @@ def generate_response(client, messages, is_verbose=False):
 
     # Process tool calls
     for tool_call in response_message.tool_calls:
-        function_result = call_function(tool_call, verbose=is_verbose)
+        function_result = call_function(tool_call, verbose=is_verbose, plain=plain)
 
         if is_verbose:
             print(f"-> {function_result}")
@@ -158,19 +166,22 @@ def get_saved_conversation(filename="assistant/data/conversation_history.json"):
     return history
 
 
-def clear_conversation_history(filename="assistant/data/conversation_history.json"):
+def clear_conversation_history(
+    filename="assistant/data/conversation_history.json", plain=False
+):
     """Delete the conversation history file.
 
     Args:
         filename: Path to the JSON file containing conversation history.
+        plain: If True, use plain text output instead of rich formatting.
 
     This is useful for starting fresh conversations or clearing sensitive data.
     """
     if os.path.exists(filename):
         os.remove(filename)
-        print("Conversation history cleared.")
+        print_success("Conversation history cleared.", plain=plain)
     else:
-        print("No conversation history to clear.")
+        print_warning("No conversation history to clear.", plain=plain)
 
 
 def main():
@@ -191,13 +202,16 @@ def main():
     user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
     is_clear_history = args.clear
+    plain = args.plain
 
     if is_clear_history:
-        clear_conversation_history()
+        clear_conversation_history(plain=plain)
         sys.exit
 
     if not user_prompt:
-        print("Please provide input text as a command-line argument.")
+        print_error(
+            "Please provide input text as a command-line argument.", plain=plain
+        )
         sys.exit(1)
 
     old_messages = get_saved_conversation()
@@ -210,10 +224,9 @@ def main():
     messages.append({"role": "user", "content": user_prompt})
 
     for _ in range(20):
-        final_text = generate_response(client, messages, is_verbose)
+        final_text = generate_response(client, messages, is_verbose, plain)
         if final_text:
-            print("Final response:")
-            print(final_text)
+            print_response(final_text, plain=plain)
             break
 
     save_conversation(messages)

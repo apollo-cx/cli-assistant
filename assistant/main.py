@@ -25,6 +25,9 @@ from assistant.ui import (
     print_error,
     print_success,
     print_warning,
+    print_banner,
+    processing_panel,
+    console,
 )
 
 from assistant.functions.function_schemas import (
@@ -36,7 +39,7 @@ from assistant.functions.function_schemas import (
 
 from assistant.argv_parser import parser
 from assistant.call_function import call_function
-from assistant.config import SYSTEM_PRPOMPT as system_prompt
+from assistant.config import SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -54,14 +57,13 @@ available_functions = [
 ]
 
 
-def generate_response(client, messages, is_verbose=False, plain=False):
+def generate_response(client, messages, is_verbose=False):
     """Generate a response from the AI and execute any tool calls.
 
     Args:
         client: OpenAI client instance configured for the local LLM.
         messages: List of message dictionaries in OpenAI format.
         is_verbose: If True, print detailed function call information.
-        plain: If True, use plain text output instead of rich formatting.
 
     Returns:
         The text content of the final response if no tool calls were made,
@@ -73,11 +75,13 @@ def generate_response(client, messages, is_verbose=False, plain=False):
     3. Executes any requested tool calls and appends results to messages
     4. Returns control for the next iteration or final output
     """
-    response = client.chat.completions.create(
-        model="qwen/qwen3-8b",
-        messages=messages,
-        tools=available_functions,
-    )
+    # Show spinner while waiting for LLM response
+    with processing_panel("AI is thinking"):
+        response = client.chat.completions.create(
+            model="qwen/qwen3-8b",
+            messages=messages,
+            tools=available_functions,
+        )
 
     response_message = response.choices[0].message
 
@@ -107,7 +111,7 @@ def generate_response(client, messages, is_verbose=False, plain=False):
 
     # Process tool calls
     for tool_call in response_message.tool_calls:
-        function_result = call_function(tool_call, verbose=is_verbose, plain=plain)
+        function_result = call_function(tool_call, verbose=is_verbose)
 
         if is_verbose:
             print(f"-> {function_result}")
@@ -166,22 +170,19 @@ def get_saved_conversation(filename="assistant/data/conversation_history.json"):
     return history
 
 
-def clear_conversation_history(
-    filename="assistant/data/conversation_history.json", plain=False
-):
+def clear_conversation_history(filename="assistant/data/conversation_history.json"):
     """Delete the conversation history file.
 
     Args:
         filename: Path to the JSON file containing conversation history.
-        plain: If True, use plain text output instead of rich formatting.
 
     This is useful for starting fresh conversations or clearing sensitive data.
     """
     if os.path.exists(filename):
         os.remove(filename)
-        print_success("Conversation history cleared.", plain=plain)
+        print_success("Conversation history cleared.")
     else:
-        print_warning("No conversation history to clear.", plain=plain)
+        print_warning("No conversation history to clear.")
 
 
 def main():
@@ -202,31 +203,31 @@ def main():
     user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
     is_clear_history = args.clear
-    plain = args.plain
 
     if is_clear_history:
-        clear_conversation_history(plain=plain)
+        clear_conversation_history()
         sys.exit
 
     if not user_prompt:
-        print_error(
-            "Please provide input text as a command-line argument.", plain=plain
-        )
+        print_error("Please provide input text as a command-line argument.")
         sys.exit(1)
+
+    # Show beautiful banner
+    print_banner()
 
     old_messages = get_saved_conversation()
 
     if not old_messages:
-        messages = [{"role": "system", "content": system_prompt}]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     else:
         messages = old_messages
 
     messages.append({"role": "user", "content": user_prompt})
 
     for _ in range(20):
-        final_text = generate_response(client, messages, is_verbose, plain)
+        final_text = generate_response(client, messages, is_verbose)
         if final_text:
-            print_response(final_text, plain=plain)
+            print_response(final_text)
             break
 
     save_conversation(messages)

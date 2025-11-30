@@ -6,6 +6,7 @@ implementations, automatically injecting the working directory for security.
 
 import os
 import json
+import time
 
 from assistant.ui import console, print_function_call, print_function_complete
 
@@ -17,13 +18,12 @@ from assistant.functions.write_file_content import write_file
 from assistant.config import WORKING_DIR
 
 
-def call_function(tool_call, verbose=False, plain=False):
+def call_function(tool_call, verbose=False):
     """Execute a function based on an OpenAI tool call.
 
     Args:
         tool_call: OpenAI tool call object containing function name and arguments.
         verbose: If True, print detailed information about the function call.
-        plain: If True, use plain text output instead of rich formatting.
 
     Returns:
         Dictionary with either:
@@ -36,9 +36,19 @@ def call_function(tool_call, verbose=False, plain=False):
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
 
-    if plain:
-        # Plain text output without spinner
-        print_function_call(function_name, args, plain=True)
+    # Print what we're calling
+    console.print(
+        f"[bold magenta]>[/bold magenta] [cyan]{function_name}[/cyan] [dim cyan]{args}[/dim cyan]"
+    )
+
+    # Start timing
+    start_time = time.time()
+
+    # Show spinner while executing
+    with console.status(
+        f"[bold magenta]Executing[/bold magenta] [cyan]{function_name}[/cyan][magenta]...[/magenta]",
+        spinner="aesthetic",
+    ):
         args["working_directory"] = WORKING_DIR
 
         function_map = {
@@ -52,28 +62,13 @@ def call_function(tool_call, verbose=False, plain=False):
             return {"error": f"Unknown function: {function_name}"}
 
         function_result = function_map[function_name](**args)
-        print_function_complete(function_name, plain=True)
 
-        return {"result": function_result}
-    else:
-        # Rich formatted with spinner
-        spinner_text = print_function_call(function_name, args, plain=False)
-        with console.status(spinner_text, spinner="dots"):
-            args["working_directory"] = WORKING_DIR
+        # Ensure spinner shows for at least 200ms so it's visible
+        elapsed = time.time() - start_time
+        if elapsed < 0.2:
+            time.sleep(0.2 - elapsed)
 
-            function_map = {
-                "get_file_content": get_file_content,
-                "get_files_info": get_files_info,
-                "write_file": write_file,
-                "run_python": run_python,
-            }
+    # Show completion
+    print_function_complete(function_name)
 
-            if function_name not in function_map:
-                return {"error": f"Unknown function: {function_name}"}
-
-            function_result = function_map[function_name](**args)
-
-        # Show completion
-        print_function_complete(function_name, plain=False)
-
-        return {"result": function_result}
+    return {"result": function_result}

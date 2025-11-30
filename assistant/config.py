@@ -8,16 +8,16 @@ Defines:
 """
 
 # Maximum number of characters to read from a file before truncating
-MAX_CHARS = 10000
+MAX_CHARS = 1000000
 
 # Working directory - all file operations are restricted to this path
 WORKING_DIR = "./calculator"
 
 # Maximum number of LLM response iterations per user query
-ITERATON_LIMIT = 20
+ITERATION_LIMIT = 100
 
 # System prompt that defines the AI assistant's role and capabilities
-SYSTEM_PRPOMPT = """
+SYSTEM_PROMPT = """
 You are a helpful AI coding agent.
 
 When a user asks a question or makes a request, make a function call plan. You can perform the following operations:

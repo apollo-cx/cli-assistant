@@ -16,9 +16,14 @@ All operations are sandboxed to a specified working directory for security.
 import os
 import sys
 import json
+import time
 
 from dotenv import load_dotenv  # type: ignore
 from openai import OpenAI
+from rich import box
+from rich.align import Align
+from rich.panel import Panel
+from rich.text import Text
 
 from assistant.ui import (
     print_response,
@@ -27,7 +32,9 @@ from assistant.ui import (
     print_warning,
     print_banner,
     processing_panel,
+    matrix_container,
     console,
+    get_user_input_in_matrix,
 )
 
 from assistant.functions.function_schemas import (
@@ -185,6 +192,90 @@ def clear_conversation_history(filename="assistant/data/conversation_history.jso
         print_warning("No conversation history to clear.")
 
 
+def chat_mode(is_verbose=False):
+    """Run the assistant in interactive chat mode.
+
+    Args:
+        is_verbose: If True, print detailed function call information.
+
+    This mode allows continuous conversation with the AI without
+    restarting the command. Type 'exit', 'quit', or press Ctrl+C to end.
+    """
+    old_messages = get_saved_conversation()
+
+    if not old_messages:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    else:
+        messages = old_messages
+
+    # Use matrix container for the entire chat session
+    with matrix_container():
+        # Show banner
+        print_banner()
+
+        # Add chat mode instructions
+        chat_instructions = Panel(
+            Align.center(
+                Text(
+                    "Interactive Chat Mode\nType 'exit' or 'quit' to end the conversation",
+                    style="cyan",
+                    justify="center",
+                )
+            ),
+            border_style="dim magenta",
+            box=box.ROUNDED,
+            padding=(0, 2),
+        )
+
+        from assistant.ui import _matrix_center_content, _update_matrix_display
+
+        _matrix_center_content.append(chat_instructions)
+        _update_matrix_display()
+
+        try:
+            while True:
+                # Get user input inside the matrix
+                user_prompt = get_user_input_in_matrix("You")
+
+                # Check for exit commands
+                if user_prompt.lower().strip() in ["exit", "quit", "q", ""]:
+                    goodbye_panel = Panel(
+                        Align.center(Text("Goodbye!", style="bold cyan")),
+                        border_style="magenta",
+                        box=box.ROUNDED,
+                        padding=(0, 2),
+                    )
+                    _matrix_center_content.append(goodbye_panel)
+                    _update_matrix_display()
+                    time.sleep(1.5)
+                    break
+
+                # Skip empty prompts
+                if not user_prompt.strip():
+                    continue
+
+                messages.append({"role": "user", "content": user_prompt})
+
+                for _ in range(20):
+                    final_text = generate_response(client, messages, is_verbose)
+                    if final_text:
+                        print_response(final_text)
+                        break
+
+                save_conversation(messages)
+
+        except KeyboardInterrupt:
+            goodbye_panel = Panel(
+                Align.center(Text("Goodbye!", style="bold cyan")),
+                border_style="magenta",
+                box=box.ROUNDED,
+                padding=(0, 2),
+            )
+            _matrix_center_content.append(goodbye_panel)
+            _update_matrix_display()
+            time.sleep(1.5)
+
+
 def main():
     """Main entry point for the CLI assistant.
 
@@ -194,6 +285,7 @@ def main():
     - Message loop with the LLM (up to 20 iterations)
     - Tool execution via function calling
     - Final response output
+    - Interactive chat mode (--chat flag)
 
     The assistant runs in an iterative loop, allowing the LLM to make
     multiple tool calls and process their results before generating
@@ -203,34 +295,42 @@ def main():
     user_prompt = " ".join(args.prompt)
     is_verbose = args.verbose
     is_clear_history = args.clear
+    is_chat_mode = args.chat
 
     if is_clear_history:
         clear_conversation_history()
-        sys.exit
+        sys.exit(0)
+
+    # Enter interactive chat mode
+    if is_chat_mode:
+        chat_mode(is_verbose)
+        sys.exit(0)
 
     if not user_prompt:
         print_error("Please provide input text as a command-line argument.")
         sys.exit(1)
 
-    # Show beautiful banner
-    print_banner()
+    # Use matrix container for all UI
+    with matrix_container():
+        # Show beautiful banner
+        print_banner()
 
-    old_messages = get_saved_conversation()
+        old_messages = get_saved_conversation()
 
-    if not old_messages:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    else:
-        messages = old_messages
+        if not old_messages:
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        else:
+            messages = old_messages
 
-    messages.append({"role": "user", "content": user_prompt})
+        messages.append({"role": "user", "content": user_prompt})
 
-    for _ in range(20):
-        final_text = generate_response(client, messages, is_verbose)
-        if final_text:
-            print_response(final_text)
-            break
+        for _ in range(20):
+            final_text = generate_response(client, messages, is_verbose)
+            if final_text:
+                print_response(final_text)
+                break
 
-    save_conversation(messages)
+        save_conversation(messages)
 
 
 if __name__ == "__main__":

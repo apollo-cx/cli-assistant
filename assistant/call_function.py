@@ -8,7 +8,12 @@ import os
 import json
 import time
 
-from assistant.ui import console, print_function_call, print_function_complete
+from assistant.ui import (
+    console,
+    print_function_call,
+    print_function_complete,
+    function_calls_panel,
+)
 
 from assistant.functions.get_file_content import get_file_content
 from assistant.functions.get_files_info import get_files_info
@@ -36,19 +41,21 @@ def call_function(tool_call, verbose=False):
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
 
-    # Print what we're calling
-    console.print(
-        f"[bold magenta]>[/bold magenta] [cyan]{function_name}[/cyan] [dim cyan]{args}[/dim cyan]"
-    )
+    with function_calls_panel() as renderables:
+        from rich.text import Text as RichText
 
-    # Start timing
-    start_time = time.time()
+        # Add function call info
+        call_text = RichText()
+        call_text.append("▸ ", style="bold magenta")
+        call_text.append(function_name, style="cyan")
+        call_text.append(" ", style="")
+        call_text.append(str(args), style="dim cyan")
+        renderables.append(call_text)
 
-    # Show spinner while executing
-    with console.status(
-        f"[bold magenta]Executing[/bold magenta] [cyan]{function_name}[/cyan][magenta]...[/magenta]",
-        spinner="aesthetic",
-    ):
+        # Start timing
+        start_time = time.time()
+
+        # Execute function
         args["working_directory"] = WORKING_DIR
 
         function_map = {
@@ -63,12 +70,16 @@ def call_function(tool_call, verbose=False):
 
         function_result = function_map[function_name](**args)
 
-        # Ensure spinner shows for at least 200ms so it's visible
+        # Ensure minimum execution time for visibility
         elapsed = time.time() - start_time
         if elapsed < 0.2:
             time.sleep(0.2 - elapsed)
 
-    # Show completion
-    print_function_complete(function_name)
+        # Add completion message
+        complete_text = RichText()
+        complete_text.append("✓ ", style="bold green")
+        complete_text.append(function_name, style="cyan")
+        complete_text.append(" completed", style="green")
+        renderables.append(complete_text)
 
     return {"result": function_result}

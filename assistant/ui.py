@@ -1,271 +1,459 @@
-"""UI utilities for rich formatting.
+"""UI utilities for rich formatting with matrix rain animation.
 
 This module provides a unified interface for terminal output with rich
-formatting including colors, panels, spinners, and markdown rendering.
-
-Rich Library Features Used:
-- Console: Main output handler with color and style support
-- Panel: Bordered containers with titles for organized content display
-- Markdown: Renders markdown text with syntax highlighting
-- Table: Creates formatted tables with customizable columns and styling
-- Status: Context manager for animated spinners during operations
-- Text: Styled text with gradient support
-- Box: Custom box styles for panels (ROUNDED, DOUBLE, HEAVY, etc.)
-
-Important Notes:
-- Animations (spinners) only appear in interactive terminals
-- Rich automatically disables animations when output is piped/redirected
-- Spinners disappear when operations complete (this is normal behavior)
+formatting including colors, panels, spinners, and animated matrix rain effects.
 """
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 from rich import box
-from rich.style import Style
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.align import Align
+from rich.layout import Layout
 from contextlib import contextmanager
+import random
+import time
+import threading
 
-# Global console instance for all rich output operations
-# force_terminal=True would force colors even when piped, but we use auto-detection
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+MATRIX_CHARS = "01アイウエオカキクケコサシスセソタチツテト"
+MATRIX_PANEL_WIDTH = 12
+MATRIX_REFRESH_RATE = 12  # FPS
+MATRIX_ANIMATION_DELAY = 0.08  # seconds
+
+COLOR_PRIMARY = "magenta"
+COLOR_SECONDARY = "cyan"
+COLOR_SUCCESS = "green"
+COLOR_ERROR = "red"
+COLOR_WARNING = "yellow"
+COLOR_MATRIX = "green"
+
+# =============================================================================
+# GLOBALS
+# =============================================================================
+
 console = Console()
 
+# Matrix animation state
+_matrix_live = None
+_matrix_center_content = []
+_matrix_columns = {}
+_matrix_stop_event = threading.Event()
 
-@contextmanager
-def processing_panel(message="AI is thinking"):
-    """Context manager for displaying a processing panel with animated spinner.
+# =============================================================================
+# MATRIX ANIMATION
+# =============================================================================
 
-    Args:
-        message: Message to display in the spinner.
 
-    Yields:
-        None
+class MatrixColumn:
+    """A single column of falling matrix characters with waterfall effect."""
 
-    Example:
-        with processing_panel("AI is thinking"):
-            # Do some processing
-            result = some_function()
-    """
-    spinner_text = Text()
-    spinner_text.append(message, style="bold cyan")
-    spinner_text.append("...", style="cyan")
-    spinner_text.justify = "center"
+    def __init__(self, width=6):
+        self.width = width
+        self.offset = random.randint(0, 10)
 
-    spinner = Spinner("aesthetic", text=spinner_text, style="magenta")
+    def generate(self, height):
+        """Generate the matrix column with scrolling waterfall effect."""
+        self.offset = (self.offset + 1) % height
+        text = Text()
 
-    # Create a centered renderable
-    centered_spinner = Align.center(spinner)
+        for i in range(height):
+            pos = (i + self.offset) % height
+            line = "".join(random.choice(MATRIX_CHARS) for _ in range(self.width))
 
-    panel = Panel(
-        centered_spinner,
-        title="[bold cyan]Processing Request[/bold cyan]",
-        border_style="magenta",
+            # Brightness gradient: bright at top, dim at bottom
+            if pos < 3:
+                style = "bold bright_green"
+            elif pos < 7:
+                style = COLOR_MATRIX
+            else:
+                style = f"dim {COLOR_MATRIX}"
+
+            text.append(line + "\n", style=style)
+
+        return text
+
+
+def _get_terminal_height():
+    """Get the current terminal height with fallback."""
+    try:
+        return max(console.size.height - 4, 20)
+    except:
+        return 30
+
+
+def _create_matrix_panel(matrix_column, height):
+    """Create a panel for a matrix column."""
+    return Panel(
+        matrix_column.generate(height),
+        border_style=f"dim {COLOR_MATRIX}",
         box=box.ROUNDED,
         padding=(0, 1),
     )
 
-    console.print()
-    with Live(panel, console=console, refresh_per_second=10):
-        yield
-    console.print()
 
-
-def print_function_call(function_name, args):
-    """Display a function call notification with formatting.
-
-    Args:
-        function_name: Name of the function being called.
-        args: Dictionary of arguments passed to the function.
-
-    Returns:
-        Formatted string for use with console.status() spinner.
-
-    Rich Features:
-        - Magenta highlight
-        - Cyan for function name
-        - Dim cyan for arguments
-        - Used with console.status() to show animated spinner
-
-    Example:
-        spinner_text = print_function_call("get_file", {"path": "test.py"})
-        with console.status(spinner_text, spinner="dots"):
-            # Execute function
-            pass
-    """
-    return f"[bold magenta]>[/bold magenta] [cyan]{function_name}[/cyan] [dim cyan]{args}[/dim cyan]"
-
-
-def print_function_complete(function_name):
-    """Display function completion notification.
-
-    Args:
-        function_name: Name of the completed function.
-
-    Rich Features:
-        - Green check mark
-        - Cyan for function name
-        - console.print() for rich text rendering
-
-    Example:
-        print_function_complete("get_file")
-        # Output: + get_file completed (in vibrant colors)
-    """
-    console.print(
-        f"[bold green]+[/bold green] [cyan]{function_name}[/cyan] [green]completed[/green]"
+def _create_center_panel(content_list):
+    """Create the center content panel."""
+    content = Group(*content_list) if content_list else Text("")
+    return Panel(
+        content,
+        border_style=f"bold {COLOR_PRIMARY}",
+        box=box.HEAVY,
+        padding=(1, 2),
     )
+
+
+def _create_layout(left_panel, center_panel, right_panel):
+    """Create the three-column layout with fixed matrix widths."""
+    layout = Layout()
+    layout.split_row(
+        Layout(left_panel, size=MATRIX_PANEL_WIDTH),
+        Layout(center_panel, ratio=1),
+        Layout(right_panel, size=MATRIX_PANEL_WIDTH),
+    )
+    return layout
+
+
+def _update_matrix_display():
+    """Update the matrix display with current center content."""
+    global _matrix_live, _matrix_center_content, _matrix_columns
+
+    if _matrix_live is None:
+        return
+
+    # Initialize matrix columns if needed
+    if "left" not in _matrix_columns:
+        _matrix_columns["left"] = MatrixColumn(width=6)
+    if "right" not in _matrix_columns:
+        _matrix_columns["right"] = MatrixColumn(width=6)
+
+    height = _get_terminal_height()
+
+    # Create all three panels
+    left_panel = _create_matrix_panel(_matrix_columns["left"], height)
+    center_panel = _create_center_panel(_matrix_center_content)
+    right_panel = _create_matrix_panel(_matrix_columns["right"], height)
+
+    # Update the live display
+    layout = _create_layout(left_panel, center_panel, right_panel)
+    _matrix_live.update(layout)
+
+
+def _matrix_animation_loop():
+    """Continuously update matrix rain animation."""
+    while not _matrix_stop_event.is_set():
+        _update_matrix_display()
+        time.sleep(MATRIX_ANIMATION_DELAY)
+
+
+@contextmanager
+def matrix_container():
+    """Context manager for displaying content with animated matrix rain.
+
+    Example:
+        with matrix_container():
+            print_banner()
+            print_response("Hello")
+    """
+    global _matrix_live, _matrix_center_content, _matrix_columns, _matrix_stop_event
+
+    # Reset state
+    _matrix_center_content.clear()
+    _matrix_columns.clear()
+    _matrix_stop_event.clear()
+
+    console.print()
+
+    # Start live display
+    _matrix_live = Live(
+        console=console,
+        refresh_per_second=MATRIX_REFRESH_RATE,
+        auto_refresh=False
+    )
+    _matrix_live.start()
+    _update_matrix_display()
+
+    # Start animation thread
+    animation_thread = threading.Thread(target=_matrix_animation_loop, daemon=True)
+    animation_thread.start()
+
+    try:
+        yield
+    finally:
+        # Stop animation
+        _matrix_stop_event.set()
+        animation_thread.join(timeout=0.5)
+        time.sleep(1.5)
+
+        # Stop live display
+        _matrix_live.stop()
+        _matrix_live = None
+        console.print()
+
+
+def _add_to_matrix_or_print(panel):
+    """Add panel to matrix container if active, otherwise print directly."""
+    if _matrix_live is not None:
+        _matrix_center_content.append(panel)
+        _update_matrix_display()
+    else:
+        console.print()
+        console.print(panel)
+        console.print()
+
+
+# =============================================================================
+# CONTEXT MANAGERS
+# =============================================================================
+
+
+@contextmanager
+def processing_panel(message="AI is thinking"):
+    """Display a processing panel with animated spinner.
+
+    Args:
+        message: Message to display in the spinner.
+    """
+    global _matrix_live, _matrix_center_content
+
+    spinner_text = Text()
+    spinner_text.append(message, style=f"bold {COLOR_SECONDARY}")
+    spinner_text.append("...", style=COLOR_SECONDARY)
+    spinner_text.justify = "center"
+
+    panel = Panel(
+        Align.center(Spinner("aesthetic", text=spinner_text, style=COLOR_PRIMARY)),
+        title=f"[bold {COLOR_SECONDARY}]Processing Request[/bold {COLOR_SECONDARY}]",
+        border_style=COLOR_PRIMARY,
+        box=box.ROUNDED,
+        padding=(0, 1),
+    )
+
+    if _matrix_live is not None:
+        _matrix_center_content.append(panel)
+        try:
+            yield
+        finally:
+            if panel in _matrix_center_content:
+                _matrix_center_content.remove(panel)
+            _update_matrix_display()
+    else:
+        console.print()
+        with Live(panel, console=console, refresh_per_second=10):
+            yield
+        console.print()
+
+
+@contextmanager
+def function_calls_panel():
+    """Context manager for displaying function calls in a panel."""
+    global _matrix_live, _matrix_center_content
+
+    renderables = []
+    yield renderables
+
+    if renderables:
+        panel = Panel(
+            Align.center(Group(*renderables)),
+            title=f"[bold {COLOR_SECONDARY}]Calling Function[/bold {COLOR_SECONDARY}]",
+            border_style=COLOR_PRIMARY,
+            box=box.ROUNDED,
+            padding=(0, 1),
+        )
+
+        if _matrix_live is not None:
+            _matrix_center_content.append(panel)
+            _update_matrix_display()
+        else:
+            console.print()
+            console.print(panel)
+
+
+# =============================================================================
+# DISPLAY FUNCTIONS
+# =============================================================================
+
+
+def print_banner():
+    """Display the startup banner."""
+    banner_text = Text()
+    banner_text.append("   _____ _      _____ \n", style=f"bold {COLOR_SECONDARY}")
+    banner_text.append("  / ____| |    |_   _|\n", style=f"bold {COLOR_SECONDARY}")
+    banner_text.append(" | |    | |      | |  \n", style=COLOR_SECONDARY)
+    banner_text.append(" | |    | |      | |  \n", style=COLOR_SECONDARY)
+    banner_text.append(" | |____| |____ _| |_ \n", style=COLOR_SECONDARY)
+    banner_text.append("  \\_____|______|_____|\n", style=COLOR_SECONDARY)
+    banner_text.append("\n   AI Assistant\n", style=f"bold {COLOR_SECONDARY}")
+    banner_text.append("   Powered by Qwen3-8b", style=f"dim {COLOR_SECONDARY}")
+
+    panel = Panel(
+        Align.center(banner_text),
+        border_style=COLOR_PRIMARY,
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+    _add_to_matrix_or_print(panel)
 
 
 def print_response(text):
-    """Display the AI's response with formatting.
-
-    Args:
-        text: The response text to display (supports markdown).
-
-    Rich Features:
-        - Panel: Creates a rounded bordered box with beautiful styling
-        - Markdown: Renders markdown syntax (headers, code blocks, lists, etc.)
-        - Magenta border with cyan title for visual appeal
-        - Extra padding for breathing room
-        - Centered text
-
-    Example:
-        response = "Here's some **bold** text and `code`"
-        print_response(response)
-        # Displays a stunning rounded panel with rendered markdown
-    """
-    # Create centered text instead of markdown for better centering
-    from rich.text import Text as RichText
-
-    centered_text = RichText(text, justify="center")
-
-    console.print()
-    console.print(
-        Panel(
-            centered_text,
-            title="[bold cyan]AI Response[/bold cyan]",
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(1, 3),
-        )
+    """Display the AI's response."""
+    panel = Panel(
+        Text(text, justify="center"),
+        title=f"[bold {COLOR_SECONDARY}]AI Response[/bold {COLOR_SECONDARY}]",
+        border_style=COLOR_PRIMARY,
+        box=box.ROUNDED,
+        padding=(1, 3),
     )
-    console.print()
+    _add_to_matrix_or_print(panel)
+
+
+def print_error(message):
+    """Display an error message."""
+    console.print(f"[bold {COLOR_ERROR}]X[/bold {COLOR_ERROR}] [{COLOR_ERROR}]{message}[/{COLOR_ERROR}]")
+
+
+def print_success(message):
+    """Display a success message."""
+    console.print(f"[bold {COLOR_SUCCESS}]+[/bold {COLOR_SUCCESS}] [{COLOR_SUCCESS}]{message}[/{COLOR_SUCCESS}]")
+
+
+def print_warning(message):
+    """Display a warning message."""
+    console.print(f"[bold {COLOR_WARNING}]![/bold {COLOR_WARNING}] [{COLOR_WARNING}]{message}[/{COLOR_WARNING}]")
 
 
 def print_verbose_response(response_data):
-    """Display detailed function response data in verbose mode.
-
-    Args:
-        response_data: The response data to display.
-
-    Rich Features:
-        - Panel: Rounded bordered container for organized display
-        - Magenta border with cyan title
-        - Double box style for emphasis
-
-    Example:
-        data = {"result": "File contents..."}
-        print_verbose_response(data)
-        # Displays beautiful magenta-bordered panel with the data
-    """
+    """Display detailed response data in verbose mode."""
     console.print(
         Panel(
             Align.center(str(response_data)),
-            title="[bold cyan]Response[/bold cyan]",
-            border_style="magenta",
+            title=f"[bold {COLOR_SECONDARY}]Response[/bold {COLOR_SECONDARY}]",
+            border_style=COLOR_PRIMARY,
             box=box.DOUBLE,
             padding=(1, 2),
         )
     )
 
 
-def print_error(message):
-    """Display an error message with formatting.
-
-    Args:
-        message: Error message to display.
-
-    Rich Features:
-        - Bold red X for high visibility
-        - Red text for immediate attention
-        - console.print() for styled output
-
-    Example:
-        print_error("File not found")
-        # Output: X File not found (in bold red)
-    """
-    console.print(f"[bold red]X[/bold red] [red]{message}[/red]")
+# =============================================================================
+# USER INPUT
+# =============================================================================
 
 
-def print_success(message):
-    """Display a success message with formatting.
+def get_user_input_in_matrix(prompt_text="You"):
+    """Get user input within the matrix container."""
+    global _matrix_live, _matrix_center_content, _matrix_stop_event, _matrix_columns
 
-    Args:
-        message: Success message to display.
+    # Stop animation
+    if _matrix_live is not None:
+        _matrix_live.stop()
+        _matrix_stop_event.set()
 
-    Rich Features:
-        - Bold green check mark
-        - Green text for positive reinforcement
-        - console.print() for styled output
+    # Display current state with static matrix
+    height = _get_terminal_height()
+    
+    left_matrix = Panel(
+        Text("\n".join("".join(random.choice(MATRIX_CHARS) for _ in range(6)) 
+                       for _ in range(height)), style=COLOR_MATRIX),
+        border_style=f"dim {COLOR_MATRIX}",
+        box=box.ROUNDED,
+        padding=(0, 1),
+    )
+    
+    right_matrix = Panel(
+        Text("\n".join("".join(random.choice(MATRIX_CHARS) for _ in range(6)) 
+                       for _ in range(height)), style=COLOR_MATRIX),
+        border_style=f"dim {COLOR_MATRIX}",
+        box=box.ROUNDED,
+        padding=(0, 1),
+    )
 
-    Example:
-        print_success("File saved successfully")
-        # Output: + File saved successfully (in vibrant green)
-    """
-    console.print(f"[bold green]+[/bold green] [green]{message}[/green]")
+    center_panel = _create_center_panel(_matrix_center_content)
+    layout = _create_layout(left_matrix, center_panel, right_matrix)
+
+    console.clear()
+    console.print(layout)
+    console.print()
+
+    # Get input
+    console.print(f"[bold {COLOR_PRIMARY}]You:[/bold {COLOR_PRIMARY}] ", end="")
+    try:
+        user_input = input()
+    except EOFError:
+        user_input = ""
+
+    # Add user message to content
+    if user_input.strip():
+        panel = Panel(
+            Align.center(Text(user_input, style="white")),
+            title=f"[bold {COLOR_SECONDARY}]User Message[/bold {COLOR_SECONDARY}]",
+            border_style=COLOR_PRIMARY,
+            box=box.ROUNDED,
+            padding=(0, 2),
+        )
+        _matrix_center_content.append(panel)
+
+    # Restart animation
+    if _matrix_live is not None:
+        _matrix_stop_event.clear()
+        _matrix_columns.clear()
+        _matrix_live.start()
+        
+        animation_thread = threading.Thread(target=_matrix_animation_loop, daemon=True)
+        animation_thread.start()
+        _update_matrix_display()
+
+    return user_input
 
 
-def print_warning(message):
-    """Display a warning message with formatting.
+# =============================================================================
+# LEGACY/UNUSED FUNCTIONS (kept for compatibility)
+# =============================================================================
 
-    Args:
-        message: Warning message to display.
 
-    Rich Features:
-        - Bold yellow warning symbol
-        - Bright yellow text for attention-grabbing
-        - console.print() for styled output
+def print_function_call(function_name, args):
+    """Display a function call notification."""
+    return f"[bold {COLOR_PRIMARY}]>[/bold {COLOR_PRIMARY}] [{COLOR_SECONDARY}]{function_name}[/{COLOR_SECONDARY}] [dim {COLOR_SECONDARY}]{args}[/dim {COLOR_SECONDARY}]"
 
-    Example:
-        print_warning("Large file may be truncated")
-        # Output: ! Large file may be truncated (in bold yellow)
-    """
-    console.print(f"[bold yellow]![/bold yellow]  [yellow]{message}[/yellow]")
+
+def print_function_complete(function_name):
+    """Display function completion notification."""
+    console.print(
+        f"[bold {COLOR_SUCCESS}]+[/bold {COLOR_SUCCESS}] [{COLOR_SECONDARY}]{function_name}[/{COLOR_SECONDARY}] [{COLOR_SUCCESS}]completed[/{COLOR_SUCCESS}]"
+    )
+
+
+def print_code_block(code, language="python"):
+    """Display a code block with syntax highlighting."""
+    markdown_code = f"```{language}\n{code}\n```"
+    console.print(
+        Panel(
+            Markdown(markdown_code),
+            border_style=f"dim {COLOR_PRIMARY}",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
 
 
 def print_request_info(user_prompt, response=None):
-    """Display detailed request information including token usage.
-
-    Args:
-        user_prompt: The user's input prompt.
-        response: Optional response object containing usage metadata.
-
-    Rich Features:
-        - Table: Beautiful multi-column table with rounded borders
-        - Magenta border with cyan text
-        - Color-coded columns
-        - Row highlighting for better readability
-
-    Example:
-        print_request_info("Analyze this code", response_obj)
-        # Displays a stunning table with prompt and token counts
-
-    Note:
-        Token usage extraction attempts to read 'usage_metadata' attribute
-        from the response object. Gracefully handles missing attributes.
-    """
+    """Display detailed request information including token usage."""
     table = Table(
-        title="[bold cyan]Request Information[/bold cyan]",
-        border_style="magenta",
+        title=f"[bold {COLOR_SECONDARY}]Request Information[/bold {COLOR_SECONDARY}]",
+        border_style=COLOR_PRIMARY,
         box=box.ROUNDED,
         show_header=True,
-        header_style="bold cyan",
+        header_style=f"bold {COLOR_SECONDARY}",
         row_styles=["dim", ""],
     )
-    table.add_column("Property", style="cyan", no_wrap=True)
+    table.add_column("Property", style=COLOR_SECONDARY, no_wrap=True)
     table.add_column("Value", style="white")
 
     table.add_row(
@@ -273,13 +461,12 @@ def print_request_info(user_prompt, response=None):
         user_prompt[:100] + "..." if len(user_prompt) > 100 else user_prompt,
     )
 
-    if response:
+    if response and hasattr(response, "usage_metadata"):
         try:
-            if hasattr(response, "usage_metadata"):
-                metadata = response.usage_metadata
-                table.add_row("Prompt Tokens", str(metadata.prompt_token_count))
-                table.add_row("Response Tokens", str(metadata.candidates_token_count))
-                table.add_row("Total Tokens", str(metadata.total_token_count))
+            metadata = response.usage_metadata
+            table.add_row("Prompt Tokens", str(metadata.prompt_token_count))
+            table.add_row("Response Tokens", str(metadata.candidates_token_count))
+            table.add_row("Total Tokens", str(metadata.total_token_count))
         except:
             pass
 
@@ -288,149 +475,26 @@ def print_request_info(user_prompt, response=None):
     console.print()
 
 
-def print_banner():
-    """Display a beautiful startup banner.
-
-    Rich Features:
-        - ASCII art banner with cyan coloring
-        - Rounded panel with magenta border
-        - Welcome message
-
-    Example:
-        print_banner()
-        # Displays a colorful welcome banner
-    """
-    banner_text = Text()
-    banner_text.append("   _____ _      _____ \n", style="bold cyan")
-    banner_text.append("  / ____| |    |_   _|\n", style="bold cyan")
-    banner_text.append(" | |    | |      | |  \n", style="cyan")
-    banner_text.append(" | |    | |      | |  \n", style="cyan")
-    banner_text.append(" | |____| |____ _| |_ \n", style="cyan")
-    banner_text.append("  \\_____|______|_____|\n", style="cyan")
-    banner_text.append("\n   ", style="")
-    banner_text.append("AI Assistant", style="bold cyan")
-    banner_text.append("\n", style="")
-    banner_text.append("   Powered by ", style="dim")
-    banner_text.append("Qwen3-8b", style="bold cyan")
-
-    console.print()
-    console.print(
-        Panel(
-            Align.center(banner_text),
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
-    console.print()
-
-
 def print_divider(text=""):
-    """Print a visual divider with optional text.
-
-    Args:
-        text: Optional text to display in the divider.
-
-    Rich Features:
-        - Panel with centered text and magenta border
-        - Minimal padding for clean look
-
-    Example:
-        print_divider("Processing")
-        # Displays a styled panel with "Processing" centered
-    """
+    """Print a visual divider with optional text."""
     if text:
         console.print()
         console.print(
             Panel(
-                Text(text, style="bold cyan", justify="center"),
-                border_style="magenta",
+                Text(text, style=f"bold {COLOR_SECONDARY}", justify="center"),
+                border_style=COLOR_PRIMARY,
                 box=box.ROUNDED,
                 padding=(0, 1),
             )
         )
         console.print()
     else:
-        console.print("[dim cyan]" + "─" * 60 + "[/dim cyan]")
-
-
-def print_processing_panel():
-    """Display a processing panel with centered loading indicator.
-
-    Rich Features:
-        - Panel with "Processing Request" title
-        - Centered loading indicator
-        - Magenta border for consistency
-
-    Example:
-        print_processing_panel()
-        # Displays a panel with loading bar
-    """
-    loading_text = Text()
-    loading_text.append("●", style="bold magenta")
-    loading_text.append(" ", style="")
-    loading_text.append("●", style="bold cyan")
-    loading_text.append(" ", style="")
-    loading_text.append("●", style="bold magenta")
-
-    console.print()
-    console.print(
-        Panel(
-            Align.center(loading_text),
-            title="[bold cyan]Processing Request[/bold cyan]",
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(0, 1),
-        )
-    )
-    console.print()
+        console.print(f"[dim {COLOR_SECONDARY}]" + "─" * 60 + f"[/dim {COLOR_SECONDARY}]")
 
 
 def print_step(step_num, total_steps, message):
-    """Display a numbered step in a multi-step process.
-
-    Args:
-        step_num: Current step number.
-        total_steps: Total number of steps.
-        message: Description of the current step.
-
-    Rich Features:
-        - Magenta numbered badge
-        - Progress indicator with colors
-        - Visual step counter
-
-    Example:
-        print_step(1, 3, "Loading files")
-        # Displays: [1/3] Loading files (with beautiful styling)
-    """
+    """Display a numbered step in a multi-step process."""
     console.print(
-        f"[bold magenta][{step_num}[/bold magenta][dim]/{total_steps}[/dim][bold magenta]][/bold magenta] "
-        f"[cyan]{message}[/cyan]"
-    )
-
-
-def print_code_block(code, language="python"):
-    """Display a code block with syntax highlighting.
-
-    Args:
-        code: The code to display.
-        language: Programming language for syntax highlighting.
-
-    Rich Features:
-        - Syntax highlighting via Markdown
-        - Magenta-themed code panel
-        - Rounded borders
-
-    Example:
-        print_code_block("def hello():\\n    print('hi')", "python")
-        # Displays a beautifully highlighted code block
-    """
-    markdown_code = f"```{language}\n{code}\n```"
-    console.print(
-        Panel(
-            Markdown(markdown_code),
-            border_style="dim magenta",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
+        f"[bold {COLOR_PRIMARY}][{step_num}[/bold {COLOR_PRIMARY}][dim]/{total_steps}[/dim][bold {COLOR_PRIMARY}]][/bold {COLOR_PRIMARY}] "
+        f"[{COLOR_SECONDARY}]{message}[/{COLOR_SECONDARY}]"
     )

@@ -26,3 +26,5 @@ parser.add_argument(
 )
 
 parser.add_argument("-s", "--silent", action="store_true", help="Enable silent mode")
+
+parser.add_argument("--chat", action="store_true", help="Enable interactive chat mode")

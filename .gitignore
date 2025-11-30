@@ -1,5 +1,6 @@
 # --- General ---
 data/
+tests/
 
 # --- Python-generated files ---
 __pycache__/

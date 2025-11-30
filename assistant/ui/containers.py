@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 import time
+import threading
 
 from rich.live import Live
 from rich.panel import Panel
@@ -75,6 +76,7 @@ def processing_panel(message="AI is thinking"):
         message: Status message to display
     """
     import assistant.ui.config as config
+    import threading
 
     spinner_text = Text()
     spinner_text.append(message, style=f"bold {COLOR_SECONDARY}")
@@ -91,9 +93,23 @@ def processing_panel(message="AI is thinking"):
 
     if config._matrix_live is not None:
         config._matrix_center_content.append(panel)
+
+        # Start animation thread to keep spinner moving
+        stop_event = threading.Event()
+
+        def animate_spinner():
+            while not stop_event.is_set():
+                _update_matrix_display()
+                time.sleep(0.08)  # ~12 FPS for smooth animation
+
+        animation_thread = threading.Thread(target=animate_spinner, daemon=True)
+        animation_thread.start()
+
         try:
             yield
         finally:
+            stop_event.set()
+            animation_thread.join(timeout=0.5)
             if panel in config._matrix_center_content:
                 config._matrix_center_content.remove(panel)
             _update_matrix_display()
@@ -118,8 +134,9 @@ def function_calls_panel():
 
     if renderables:
         panel = Panel(
-            Align.center(Group(*renderables)),
+            Group(*renderables),
             title=f"[bold {COLOR_SECONDARY}]Calling Function[/bold {COLOR_SECONDARY}]",
+            title_align="left",
             border_style=COLOR_PRIMARY,
             box=box.ROUNDED,
             padding=(0, 1),

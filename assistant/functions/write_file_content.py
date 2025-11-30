@@ -1,27 +1,28 @@
-import os
-from google import genai
-from google.genai import types  # type: ignore
+"""File writing function with directory auto-creation.
 
-schema_write_file = types.FunctionDeclaration(
-    name="write_file",
-    description="Writes or overwrites content to a specified file within the working directory.",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path to the file to write to, relative to the working directory. If not provided, writes to the working directory itself.",
-            ),
-            "content": types.Schema(
-                type=types.Type.STRING,
-                description="The content to write into the file.",
-            ),
-        },
-    ),
-)
+Writes or overwrites files within the working directory,
+automatically creating parent directories as needed.
+"""
+
+import os
 
 
 def write_file(working_directory, file_path, content):
+    """Write content to a file within the working directory.
+
+    Args:
+        working_directory: Base directory that all operations are restricted to.
+        file_path: Path to the file relative to working_directory.
+        content: String content to write to the file.
+
+    Returns:
+        Success message with character count, or error message if:
+        - File path is outside the working directory
+        - Any exception occurs during writing
+
+    Parent directories are created automatically if they don't exist.
+    Existing files are overwritten without warning.
+    """
 
     try:
         abs_working_directory = os.path.abspath(working_directory)

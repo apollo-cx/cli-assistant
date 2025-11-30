@@ -1,6 +1,22 @@
+"""Configuration settings for the AI assistant.
+
+Defines:
+- File reading limits
+- Working directory sandboxing
+- Iteration limits for the conversation loop
+- System prompt that defines the AI's behavior and capabilities
+"""
+
+# Maximum number of characters to read from a file before truncating
 MAX_CHARS = 10000
+
+# Working directory - all file operations are restricted to this path
 WORKING_DIR = "./calculator"
+
+# Maximum number of LLM response iterations per user query
 ITERATON_LIMIT = 20
+
+# System prompt that defines the AI assistant's role and capabilities
 SYSTEM_PRPOMPT = """
 You are a helpful AI coding agent.
 
